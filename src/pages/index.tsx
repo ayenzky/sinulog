@@ -3,7 +3,7 @@ import Head from "next/head";
 import {
   GoogleMap,
   LoadScript,
-  Marker,
+  Marker as GoogleMapMarker,
   InfoWindow,
 } from "@react-google-maps/api";
 import scheduleData from "@/styles/schedule.json";
@@ -13,16 +13,15 @@ interface Event {
   name: string;
   time: string;
   venue: string;
-  note?: string;
 }
 
-interface ScheduleItem {
-  date?: string;
-  dateRange?: string;
-  events: Event[];
-}
+// interface ScheduleItem {
+//   date?: string;
+//   dateRange?: string;
+//   events: Event[];
+// }
 
-interface Marker {
+interface MapMarker {
   title: string;
   position: { lat: number; lng: number };
   events: Event[];
@@ -313,7 +312,7 @@ const parseEventTime = (time: string): number | null => {
 
   // Convert 12-hour format to 24-hour
   const [timeStr, period] = time.replace(/\s+/g, "").split(/(?=[AP]M)/i);
-  let [hours, minutes] = timeStr.split(":").map(Number);
+  let [hours] = timeStr.split(":").map(Number);
 
   if (period?.toUpperCase() === "PM" && hours !== 12) {
     hours += 12;
@@ -369,7 +368,7 @@ const parseDate = (dateStr: string): Date => {
 export default function Schedule() {
   const [selectedDate, setSelectedDate] = useState("JANUARY 20, 2025");
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedMarker, setSelectedMarker] = useState<Marker | null>(null);
+  const [selectedMarker, setSelectedMarker] = useState<MapMarker | null>(null);
   const [eventFilter, setEventFilter] = useState<EventFilter>("current");
 
   // Update the dates array to include February
@@ -390,8 +389,7 @@ export default function Schedule() {
       // Handle "FEBRUARY 2025" format
       if (item.date.split(" ").length === 2) {
         const [itemMonth, itemYear] = item.date.split(" ");
-        const [selectedMonth, selectedDay, selectedYear] =
-          selectedDate.split(" ");
+        const [selectedMonth, selectedYear] = selectedDate.split(" ");
         return itemMonth === selectedMonth && itemYear === selectedYear;
       }
     }
@@ -434,12 +432,7 @@ export default function Schedule() {
       events: dateSchedule.events.filter((event) => {
         // First apply search filter
         if (searchQuery) {
-          const searchableText = [
-            event.name,
-            event.venue,
-            event.time,
-            event.note,
-          ]
+          const searchableText = [event.name, event.venue, event.time]
             .filter(Boolean)
             .join(" ")
             .toLowerCase();
@@ -474,7 +467,7 @@ export default function Schedule() {
 
   // Get the current selected date object
   const currentDate =
-    dates.find((date) => date.value === selectedDate) || dates[3];
+    dates.find((date) => date.value === selectedDate) || dates[0];
 
   // Function to get unique venues from filtered schedule
   const getUniqueVenues = (schedule: typeof scheduleData.schedule) => {
@@ -497,7 +490,7 @@ export default function Schedule() {
   };
 
   // Get markers for the map
-  const getMarkers = (): Marker[] => {
+  const getMarkers = (): MapMarker[] => {
     const uniqueVenues = getUniqueVenues(filteredSchedule);
     return uniqueVenues
       .map((venue) => findMatchingVenue(venue))
@@ -518,7 +511,7 @@ export default function Schedule() {
   };
 
   // Update the findMarkerByVenue function
-  const findMarkerByVenue = (venue: string): Marker | null => {
+  const findMarkerByVenue = (venue: string): MapMarker | null => {
     const matchedVenue = findMatchingVenue(venue);
     if (!matchedVenue) return null;
 
@@ -758,7 +751,7 @@ export default function Schedule() {
             {/* Map */}
             <div className="rounded-2xl overflow-hidden bg-zinc-900/50">
               <LoadScript
-                googleMapsApiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}
+                googleMapsApiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY!}
               >
                 <GoogleMap
                   mapContainerStyle={mapContainerStyle}
@@ -774,7 +767,7 @@ export default function Schedule() {
                   onClick={() => setSelectedMarker(null)}
                 >
                   {getMarkers().map((marker, index) => (
-                    <Marker
+                    <GoogleMapMarker
                       key={`${marker.title}-${index}`}
                       position={marker.position}
                       title={marker.title}
@@ -799,14 +792,10 @@ export default function Schedule() {
                             fill
                             className="object-cover"
                             sizes="(max-width: 768px) 100vw, 384px"
-                            onError={() => {
-                              const target = document.getElementById(
-                                selectedMarker.title
-                              ) as HTMLImageElement;
-                              if (target) {
-                                target.src =
-                                  "https://lh5.googleusercontent.com/p/AF1QipMxDuGZcMu0rVaYy2UPkEXByWvTLOHxwB9nY1k=w408-h272-k-no";
-                              }
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement;
+                              target.src =
+                                "https://lh5.googleusercontent.com/p/AF1QipMxDuGZcMu0rVaYy2UPkEXByWvTLOHxwB9nY1k=w408-h272-k-no";
                             }}
                           />
                         </div>
