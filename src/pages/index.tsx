@@ -7,6 +7,7 @@ import {
   InfoWindow,
 } from "@react-google-maps/api";
 import scheduleData from "@/styles/schedule.json";
+import Image from "next/image";
 
 interface Event {
   name: string;
@@ -306,9 +307,47 @@ const getEventImage = (eventName: string): string => {
   return eventImages.default;
 };
 
-// Add this helper function to parse and compare dates
-const parseDate = (dateStr: string) => {
-  const [month, day, year] = dateStr.split(" ");
+// Update the time parsing helper functions
+const parseEventTime = (time: string): number | null => {
+  if (time === "TBA") return null;
+
+  // Convert 12-hour format to 24-hour
+  const [timeStr, period] = time.replace(/\s+/g, "").split(/(?=[AP]M)/i);
+  let [hours, minutes] = timeStr.split(":").map(Number);
+
+  if (period?.toUpperCase() === "PM" && hours !== 12) {
+    hours += 12;
+  } else if (period?.toUpperCase() === "AM" && hours === 12) {
+    hours = 0;
+  }
+
+  return hours;
+};
+
+// Update the event timing check functions
+const isEventCurrent = (time: string): boolean => {
+  const eventHour = parseEventTime(time);
+  if (eventHour === null) return false;
+
+  const currentHour = new Date().getHours();
+  return Math.abs(eventHour - currentHour) <= 2; // Within 2 hours before or after
+};
+
+const isEventUpcoming = (time: string): boolean => {
+  const eventHour = parseEventTime(time);
+  if (eventHour === null) return false;
+
+  const currentHour = new Date().getHours();
+  return eventHour > currentHour;
+};
+
+// Add this type for event filter
+type EventFilter = "current" | "upcoming" | "all";
+
+// Add this helper function after other helper functions
+const parseDate = (dateStr: string): Date => {
+  const [month, dayStr, year] = dateStr.split(" ");
+  const day = parseInt(dayStr.replace(",", ""));
   const monthIndex = [
     "JANUARY",
     "FEBRUARY",
@@ -323,13 +362,15 @@ const parseDate = (dateStr: string) => {
     "NOVEMBER",
     "DECEMBER",
   ].indexOf(month);
-  return new Date(parseInt(year), monthIndex, parseInt(day.replace(",", "")));
+
+  return new Date(parseInt(year), monthIndex, day);
 };
 
 export default function Schedule() {
   const [selectedDate, setSelectedDate] = useState("JANUARY 20, 2025");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedMarker, setSelectedMarker] = useState<Marker | null>(null);
+  const [eventFilter, setEventFilter] = useState<EventFilter>("current");
 
   // Update the dates array to include February
   const dates = [
@@ -386,26 +427,50 @@ export default function Schedule() {
     return false;
   });
 
-  // Then filter by search query
-  const filteredSchedule = dateFilteredSchedule.filter((item) => {
-    if (!searchQuery) return true;
+  // Update the filtering logic
+  const filteredSchedule = dateFilteredSchedule
+    .map((dateSchedule) => ({
+      ...dateSchedule,
+      events: dateSchedule.events.filter((event) => {
+        // First apply search filter
+        if (searchQuery) {
+          const searchableText = [
+            event.name,
+            event.venue,
+            event.time,
+            event.note,
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
+          if (!searchableText.includes(searchQuery.toLowerCase())) return false;
+        }
 
-    const query = searchQuery.toLowerCase();
+        // Then apply time filter
+        switch (eventFilter) {
+          case "current":
+            return isEventCurrent(event.time);
+          case "upcoming":
+            return isEventUpcoming(event.time);
+          default:
+            return true;
+        }
+      }),
+    }))
+    .filter((dateSchedule) => dateSchedule.events.length > 0);
 
-    // Search through events
-    return item.events.some((event) => {
-      const searchableText = [event.name, event.venue, event.time, event.note]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-
-      return searchableText.includes(query);
-    });
-  });
-
-  // Add console.log to debug
-  console.log("Selected Date:", selectedDate);
-  console.log("Filtered Schedule:", filteredSchedule);
+  // Add this debug log to help track filtering
+  console.log(
+    "Filtered Schedule:",
+    filteredSchedule.map((ds) =>
+      ds.events.map((e) => ({
+        name: e.name,
+        time: e.time,
+        isCurrent: isEventCurrent(e.time),
+        isUpcoming: isEventUpcoming(e.time),
+      }))
+    )
+  );
 
   // Get the current selected date object
   const currentDate =
@@ -564,6 +629,43 @@ export default function Schedule() {
             ))}
           </div>
 
+          {/* Event Filter */}
+          <div className="flex justify-center gap-2 mt-4">
+            <button
+              onClick={() => setEventFilter("current")}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200
+                ${
+                  eventFilter === "current"
+                    ? "bg-amber-500 text-zinc-900"
+                    : "bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700/50"
+                }`}
+            >
+              Current Events
+            </button>
+            <button
+              onClick={() => setEventFilter("upcoming")}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200
+                ${
+                  eventFilter === "upcoming"
+                    ? "bg-amber-500 text-zinc-900"
+                    : "bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700/50"
+                }`}
+            >
+              Upcoming Events
+            </button>
+            <button
+              onClick={() => setEventFilter("all")}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200
+                ${
+                  eventFilter === "all"
+                    ? "bg-amber-500 text-zinc-900"
+                    : "bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700/50"
+                }`}
+            >
+              All Events
+            </button>
+          </div>
+
           {/* Event List and Map Container */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             {/* Events List */}
@@ -612,11 +714,15 @@ export default function Schedule() {
                               }}
                             >
                               <div className="flex gap-4">
-                                <img
-                                  src={getEventImage(event.name)}
-                                  alt={event.name}
-                                  className="w-16 h-16 rounded-lg object-cover flex-shrink-0"
-                                />
+                                <div className="relative w-16 h-16 flex-shrink-0">
+                                  <Image
+                                    src={getEventImage(event.name)}
+                                    alt={event.name}
+                                    fill
+                                    className="rounded-lg object-cover"
+                                    sizes="64px"
+                                  />
+                                </div>
                                 <div>
                                   <h3 className="font-medium text-zinc-100 group-hover:text-amber-400 transition-colors">
                                     {event.name}
@@ -639,6 +745,10 @@ export default function Schedule() {
                   <div className="p-6 text-center text-zinc-400">
                     {searchQuery
                       ? `No events found matching "${searchQuery}"`
+                      : eventFilter === "current"
+                      ? "No current events at this time"
+                      : eventFilter === "upcoming"
+                      ? "No upcoming events scheduled"
                       : "No events scheduled for this date"}
                   </div>
                 )}
@@ -683,17 +793,21 @@ export default function Schedule() {
                       <div className="max-w-sm bg-white text-gray-900">
                         {/* Image Container */}
                         <div className="relative w-full h-48">
-                          <img
+                          <Image
                             src={selectedMarker.image}
                             alt={selectedMarker.title}
-                            className="w-full h-full object-cover"
-                            onError={(e) => {
-                              const target = e.target as HTMLImageElement;
-                              target.src =
-                                "https://lh5.googleusercontent.com/p/AF1QipMxDuGZcMu0rVaYy2UPkEXByWvTLOHxwB9nY1k=w408-h272-k-no";
+                            fill
+                            className="object-cover"
+                            sizes="(max-width: 768px) 100vw, 384px"
+                            onError={() => {
+                              const target = document.getElementById(
+                                selectedMarker.title
+                              ) as HTMLImageElement;
+                              if (target) {
+                                target.src =
+                                  "https://lh5.googleusercontent.com/p/AF1QipMxDuGZcMu0rVaYy2UPkEXByWvTLOHxwB9nY1k=w408-h272-k-no";
+                              }
                             }}
-                            loading="lazy"
-                            referrerPolicy="no-referrer"
                           />
                         </div>
 
@@ -749,11 +863,15 @@ export default function Schedule() {
                           <div className="space-y-4">
                             {selectedMarker.events.map((event, index) => (
                               <div key={index} className="flex gap-3">
-                                <img
-                                  src={getEventImage(event.name)}
-                                  alt={event.name}
-                                  className="w-12 h-12 rounded object-cover flex-shrink-0"
-                                />
+                                <div className="relative w-12 h-12 flex-shrink-0">
+                                  <Image
+                                    src={getEventImage(event.name)}
+                                    alt={event.name}
+                                    fill
+                                    className="rounded object-cover"
+                                    sizes="48px"
+                                  />
+                                </div>
                                 <div className="text-sm">
                                   <p className="font-medium text-gray-900">
                                     {event.name}
